@@ -101,30 +101,54 @@ class HandwrittenWords(Dataset):
         target = torch.from_numpy(elem[0].astype(np.float32))
         return data, target
 
-    def visualisation(self, idx):
+    def visualisation(self, idx, predicted_word=None, expected_word=None):
+        """Affiche une trajectoire et, dessous, le résultat de prédiction."""
 
         elem = self.data[idx]
 
         points = elem[1]
 
-        print(points)
-        plt.figure()
-
         # points contient deux lignes : coordonnées x puis coordonnées y
-        ax = plt.gca()
-        x = []
-        y = []
-        for x_value, y_value in zip(points[0], points[1]):
-            try:
-                x.append(float(x_value))
-                y.append(float(y_value))
-            except (TypeError, ValueError):
-                continue
+        x = np.asarray(points[0], dtype=float)
+        y = np.asarray(points[1], dtype=float)
 
-        ax.plot(x, y)
-        plt.show()
+        # Retirer les points de padding ajoutés en fin de séquence.
+        while len(x) > 1 and x[-1] == 0 and y[-1] == 0:
+            x = x[:-1]
+            y = y[:-1]
 
-        pass
+        fig, (ax_trajectory, ax_result) = plt.subplots(
+            2, 1, figsize=(6, 5), gridspec_kw={'height_ratios': [4, 1]}
+        )
+        ax_trajectory.plot(x, y, marker='.', linewidth=1.5)
+        ax_trajectory.set_title(f"Trajectoire du dataset (exemple {idx})")
+        ax_trajectory.set_xlabel('x')
+        ax_trajectory.set_ylabel('y')
+        ax_trajectory.axis('equal')
+        ax_trajectory.grid(True, alpha=0.3)
+
+        ax_result.axis('off')
+        if expected_word is not None or predicted_word is not None:
+            ax_result.text(
+                0.5,
+                0.65,
+                f"Attendu : {expected_word or ''}",
+                ha='center',
+                va='center',
+                fontsize=12,
+            )
+            ax_result.text(
+                0.5,
+                0.25,
+                f"Prédit : {predicted_word or ''}",
+                ha='center',
+                va='center',
+                fontsize=12,
+                color='tab:green' if predicted_word == expected_word else 'tab:red',
+            )
+
+        fig.tight_layout()
+        return fig
         
 
 if __name__ == "__main__":

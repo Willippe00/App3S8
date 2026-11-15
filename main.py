@@ -12,6 +12,7 @@ from models import trajectory2seq
 from dataset import *
 from metrics import *
 
+
 from dataset import HandwrittenWords
 
 if __name__ == '__main__':
@@ -19,16 +20,16 @@ if __name__ == '__main__':
     # ---------------- Paramètres et hyperparamètres ----------------#
     force_cpu = False           # Forcer a utiliser le cpu?
     trainning = True           # Entrainement?
-    test = False                # Test?
+    test = True                # Test?
     learning_curves = True     # Affichage des courbes d'entrainement?
     gen_test_images = True     # Génération images test?
     seed = 1                # Pour répétabilité
     n_workers = 0           # Nombre de threads pour chargement des données (mettre à 0 sur Windows)
 
     # À compléter
-    n_epochs = 4
+    n_epochs = 200
     batch_size = 64
-    hidden_dim = 3
+    hidden_dim = 15
     n_layers = 3
 
     best_val = np.inf
@@ -68,7 +69,8 @@ if __name__ == '__main__':
     # Instanciation du model
     model = trajectory2seq(hidden_dim=hidden_dim, n_layers=n_layers, int2symb = dataset.int2symb, symb2int = dataset.symb2int, dict_size = dataset.dict_size, device=device, maxlen=dataset.maxTexte).to(device)
 
-
+    nb_params = sum(p.numel() for p in model.parameters())
+    print(f"Nombre total de paramètres : {nb_params:,}")
     # Initialisation des variables
     epochs_train_losses = []
     epochs_val_losses = []
@@ -100,14 +102,6 @@ if __name__ == '__main__':
                 loss.backward()
                 optimizer.step()
                 running_loss += loss.item()
-
-                if batch_idx % 10 == 0:
-                    print(
-                        f"Train - époque {epoch}/{n_epochs} - "
-                        f"batch {batch_idx + 1}/{len(train_loader)} - "
-                        f"loss: {loss.item():.6f}",
-                        flush=True,
-                    )
 
             
             # Validation
@@ -157,6 +151,7 @@ if __name__ == '__main__':
                 plt.legend()
                 plt.draw()
                 plt.pause(0.001)
+                plt.savefig('courbe.png')
 
         if learning_curves:
             plt.ioff()
@@ -164,24 +159,85 @@ if __name__ == '__main__':
 
     if test:
         # Évaluation
-        model = torch.load('./poid.pt', weights_only=False)
+        model = torch.load('./poid.pt', map_location=device, weights_only=False)
 
         # Charger les données de tests
         model.eval()
         test_loss = 0
         accuracy = 0
+        total_characters = 0
+        edit_distances = []
+        loss_criterion = nn.CrossEntropyLoss()
+        example_position = int(np.random.default_rng().integers(len(dataset_test)))
+        example_prediction = None
+        example_expected = None
+        sample_offset = 0
+
+        def indices_to_word(indices):
+            """Convertit une séquence d'indices en chaîne sans les tokens spéciaux."""
+            word = []
+            for index in indices:
+                symbol = dataset.int2symb[int(index)]
+                if symbol in ('<eos>', '<pad>'):
+                    break
+                if symbol != '<sos>':
+                    word.append(symbol)
+            return ''.join(word)
+
+        def indices_to_display(indices):
+            """Convertit une séquence en texte visible, tokens spéciaux compris."""
+            word = indices_to_word(indices)
+            if word:
+                return word
+
+            first_symbol = dataset.int2symb[int(indices[0])]
+            return first_symbol if first_symbol in ('<eos>', '<pad>') else '<vide>'
 
         with torch.no_grad():
             for data, target in test_loader:
                 data, target = data.to(device), target.to(device)
+                output, _, _ = model(data)
+
+                target_indices = target.argmax(dim=-1).long()
+                prediction = output.argmax(dim=-1)
+                test_loss += loss_criterion(
+                    output.transpose(1, 2), target_indices
+                ).item()
+                accuracy += (prediction == target_indices).sum().item()
+                total_characters += target_indices.numel()
+
+                for batch_position, (predicted_indices, expected_indices) in enumerate(zip(
+                    prediction.cpu(), target_indices.cpu()
+                )):
+                    predicted_word = indices_to_word(predicted_indices)
+                    expected_word = indices_to_word(expected_indices)
+                    if sample_offset + batch_position == example_position:
+                        example_prediction = indices_to_display(predicted_indices)
+                        example_expected = indices_to_display(expected_indices)
+                    edit_distances.append(
+                        edit_distance(predicted_word, expected_word)
+                    )
+                sample_offset += prediction.size(0)
+
+        mean_edit_distance = np.mean(edit_distances)
+        mean_test_loss = test_loss / len(test_loader)
+        test_accuracy = accuracy / total_characters
+
+        print(f"Test loss: {mean_test_loss:.6f}")
+        print(f"Test accuracy: {test_accuracy:.2%}")
+        print(f"Distance d'édition moyenne: {mean_edit_distance:.4f}")
+
+        # Affichage d'un exemple choisi au hasard dans le dataset de test.
+        if example_prediction is not None:
+            fig = dataset.visualisation(
+                dataset_test.indices[example_position],
+                predicted_word=example_prediction,
+                expected_word=example_expected,
+            )
+            fig.savefig('resultat_test.png', dpi=150, bbox_inches='tight')
 
         # Affichage de l'attention
         # À compléter (si nécessaire)
 
-        # Affichage des résultats de test
-        # À compléter
-        
         # Affichage de la matrice de confusion
         # À compléter
-
-        pass
