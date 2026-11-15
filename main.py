@@ -19,7 +19,7 @@ if __name__ == '__main__':
 
     # ---------------- Paramètres et hyperparamètres ----------------#
     force_cpu = False           # Forcer a utiliser le cpu?
-    trainning = True           # Entrainement?
+    trainning = False           # Entrainement?
     test = True                # Test?
     learning_curves = True     # Affichage des courbes d'entrainement?
     gen_test_images = True     # Génération images test?
@@ -27,7 +27,7 @@ if __name__ == '__main__':
     n_workers = 0           # Nombre de threads pour chargement des données (mettre à 0 sur Windows)
 
     # À compléter
-    n_epochs = 200
+    n_epochs = 100
     batch_size = 64
     hidden_dim = 15
     n_layers = 3
@@ -78,8 +78,10 @@ if __name__ == '__main__':
     if trainning:
 
         # Fonction de coût et optimizateur
-        optimizer = optim.SGD(model.parameters(), lr=0.001)
-        loss_criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(model.parameters(), lr=0.01)
+        loss_criterion = nn.NLLLoss(
+            ignore_index=dataset.symb2int['<pad>']
+        )
 
         if learning_curves:
             plt.ion()
@@ -94,11 +96,12 @@ if __name__ == '__main__':
             for batch_idx, (data, target) in enumerate(train_loader):
                 data, target = data.to(device), target.to(device)
                 optimizer.zero_grad()
-                output, _, _ = model(data)
                 # CrossEntropyLoss utilise les indices de classes, donc on
                 # reconvertit la cible one-hot en indices avant le calcul.
                 target_indices = target.argmax(dim=-1).long()
-                loss = loss_criterion(output.transpose(1, 2), target_indices)
+                output, _, _ = model(data, target_indices)
+                log_output = torch.log(output.clamp_min(1e-8))
+                loss = loss_criterion(log_output.transpose(1, 2), target_indices)
                 loss.backward()
                 optimizer.step()
                 running_loss += loss.item()
@@ -108,15 +111,21 @@ if __name__ == '__main__':
             model.eval()
             val_loss = 0
             accuracy = 0
+            val_total_characters = 0
             with torch.no_grad():
                 for data, target in val_loader:
                     data, target = data.to(device), target.to(device)
                     output, _, _ = model(data)
                     target_indices = target.argmax(dim=-1).long()
-                    loss = loss_criterion(output.transpose(1, 2), target_indices)
+                    log_output = torch.log(output.clamp_min(1e-8))
+                    loss = loss_criterion(log_output.transpose(1, 2), target_indices)
                     val_loss += loss.item()
                     prediction = output.argmax(dim=-1)
-                    accuracy += (prediction == target_indices).sum().item()
+                    valid = target_indices != dataset.symb2int['<pad>']
+
+
+                    accuracy += ((prediction == target_indices) & valid).sum().item()
+                    val_total_characters += valid.sum().item()
 
 
             # Ajouter les loss aux listes
@@ -136,6 +145,8 @@ if __name__ == '__main__':
                 best_val = val_loss
                 print('Saving new best model\n')
                 torch.save(model, './poid.pt')
+
+
 
 
             # Affichage
@@ -167,11 +178,16 @@ if __name__ == '__main__':
         accuracy = 0
         total_characters = 0
         edit_distances = []
-        loss_criterion = nn.CrossEntropyLoss()
+        loss_criterion = nn.NLLLoss(
+            ignore_index=dataset.symb2int['<pad>']
+        )
         example_position = int(np.random.default_rng().integers(len(dataset_test)))
         example_prediction = None
         example_expected = None
         sample_offset = 0
+
+        true_labels = []
+        predicted_labels = []
 
         def indices_to_word(indices):
             """Convertit une séquence d'indices en chaîne sans les tokens spéciaux."""
@@ -200,11 +216,17 @@ if __name__ == '__main__':
 
                 target_indices = target.argmax(dim=-1).long()
                 prediction = output.argmax(dim=-1)
+                log_output = torch.log(output.clamp_min(1e-8))
                 test_loss += loss_criterion(
-                    output.transpose(1, 2), target_indices
+                    log_output.transpose(1, 2), target_indices
                 ).item()
-                accuracy += (prediction == target_indices).sum().item()
-                total_characters += target_indices.numel()
+                valid = target_indices != dataset.symb2int['<pad>']
+
+                true_labels.extend(target_indices[valid].cpu().numpy())
+                predicted_labels.extend(prediction[valid].cpu().numpy())
+
+                accuracy += ((prediction == target_indices) & valid).sum().item()
+                total_characters += valid.sum().item()
 
                 for batch_position, (predicted_indices, expected_indices) in enumerate(zip(
                     prediction.cpu(), target_indices.cpu()
@@ -218,6 +240,7 @@ if __name__ == '__main__':
                         edit_distance(predicted_word, expected_word)
                     )
                 sample_offset += prediction.size(0)
+
 
         mean_edit_distance = np.mean(edit_distances)
         mean_test_loss = test_loss / len(test_loader)
@@ -240,4 +263,6 @@ if __name__ == '__main__':
         # À compléter (si nécessaire)
 
         # Affichage de la matrice de confusion
-        # À compléter
+        true_labels = [dataset.int2symb[int(label)] for label in true_labels]
+        predicted_labels = [dataset.int2symb[int(label)] for label in predicted_labels]
+        confusion_matrix(true_labels, predicted_labels, [dataset.stop_symbol])

@@ -43,7 +43,7 @@ class trajectory2seq(nn.Module):
         out, hidden = self.encode(x)
         return out, hidden
 
-    def decode_sequence(self, encoder_outs, hidden):
+    def decode_sequence(self, encoder_outs, hidden, target=None):
         batch_size = hidden.shape[1]
         sos_index = self.symb2int['<sos>']
         vec_in = torch.full(
@@ -55,16 +55,23 @@ class trajectory2seq(nn.Module):
             embedding = self.en_embedding(vec_in)
             decoder_out, hidden = self.decoder_rnn(embedding, hidden)
             logits = self.fc(decoder_out)
-            outputs.append(logits)
-            vec_in = logits.argmax(dim=-1)
+            probabilities = torch.softmax(logits, dim=-1)
+            outputs.append(probabilities)
+
+            # Pendant l'entraînement, utiliser le caractère attendu pour
+            # éviter qu'une mauvaise prédiction ne se propage à toute la suite.
+            if target is not None and i < self.maxlen - 1:
+                vec_in = target[:, i:i + 1]
+            else:
+                vec_in = probabilities.argmax(dim=-1)
 
         return torch.cat(outputs, dim=1), hidden, None
         
 
-    def forward(self, x):
+    def forward(self, x, target=None):
         # À compléter
         out, h = self.encoder(x)
-        out, hidden, attn = self.decode_sequence(out, h)
+        out, hidden, attn = self.decode_sequence(out, h, target)
         return out, hidden, attn
     
 

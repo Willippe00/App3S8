@@ -2,6 +2,10 @@
 # Auteur: Jean-Samuel Lauzon et  Jonathan Vincent
 # Hivers 2021
 import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix as cm
+from sklearn.metrics import ConfusionMatrixDisplay
+
 
 def edit_distance(a,b):
     # Calcul de la distance d'édition
@@ -33,9 +37,23 @@ def edit_distance(a,b):
     print(mat)
     return mat[len(a), len(b)]
 
-def confusion_matrix(true, pred, ignore=[]):
+def confusion_matrix(true, pred, ignore=None):
     # Calcul de la matrice de confusion
 
-    # À compléter
+    labels = sorted(set(true) | set(pred))
+    if ignore:
+        labels = [label for label in labels if label not in ignore]
 
-    return None
+    confusion = cm(true, pred, labels=labels)
+
+    display = ConfusionMatrixDisplay(
+        confusion_matrix=confusion,
+        display_labels=labels,
+    )
+    display.plot(cmap="Blues")
+
+    plt.title("Matrice de confusion")
+    plt.savefig("matrice_confusion.png")
+
+
+    return confusion
