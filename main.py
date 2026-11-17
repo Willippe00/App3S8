@@ -31,7 +31,7 @@ if __name__ == '__main__':
     batch_size = 32 #64
     hidden_dim = 15
     n_layers = 3
-    lr =0.001
+    lr =0.004
 
     best_val = np.inf
 
