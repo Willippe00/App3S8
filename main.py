@@ -18,8 +18,8 @@ from dataset import HandwrittenWords
 if __name__ == '__main__':
 
     # ---------------- Paramètres et hyperparamètres ----------------#
-    force_cpu = False           # Forcer a utiliser le cpu?
-    trainning = False           # Entrainement?
+    force_cpu = False            # Le backend Triton/CUDA local n'a pas de compilateur C.
+    trainning = True            # Entrainement? Requis après une modification du modèle.
     test = True                # Test?
     learning_curves = True     # Affichage des courbes d'entrainement?
     gen_test_images = True     # Génération images test?
@@ -28,9 +28,10 @@ if __name__ == '__main__':
 
     # À compléter
     n_epochs = 100
-    batch_size = 64
+    batch_size = 32 #64
     hidden_dim = 15
     n_layers = 3
+    lr =0.001
 
     best_val = np.inf
 
@@ -67,7 +68,17 @@ if __name__ == '__main__':
 
 
     # Instanciation du model
-    model = trajectory2seq(hidden_dim=hidden_dim, n_layers=n_layers, int2symb = dataset.int2symb, symb2int = dataset.symb2int, dict_size = dataset.dict_size, device=device, maxlen=dataset.maxTexte).to(device)
+    model = trajectory2seq(
+        hidden_dim=hidden_dim,
+        n_layers=n_layers,
+        int2symb=dataset.int2symb,
+        symb2int=dataset.symb2int,
+        dict_size=dataset.dict_size,
+        device=device,
+        maxlen=dataset.maxTexte,
+        rnn_type='GRU',
+        bidirectional=True,
+    ).to(device)
 
     nb_params = sum(p.numel() for p in model.parameters())
     print(f"Nombre total de paramètres : {nb_params:,}")
@@ -78,8 +89,8 @@ if __name__ == '__main__':
     if trainning:
 
         # Fonction de coût et optimizateur
-        optimizer = optim.Adam(model.parameters(), lr=0.01)
-        loss_criterion = nn.NLLLoss(
+        optimizer = optim.Adam(model.parameters(), lr=lr)
+        loss_criterion = nn.CrossEntropyLoss(
             ignore_index=dataset.symb2int['<pad>']
         )
 
@@ -100,8 +111,7 @@ if __name__ == '__main__':
                 # reconvertit la cible one-hot en indices avant le calcul.
                 target_indices = target.argmax(dim=-1).long()
                 output, _, _ = model(data, target_indices)
-                log_output = torch.log(output.clamp_min(1e-8))
-                loss = loss_criterion(log_output.transpose(1, 2), target_indices)
+                loss = loss_criterion(output.transpose(1, 2), target_indices)
                 loss.backward()
                 optimizer.step()
                 running_loss += loss.item()
@@ -117,8 +127,7 @@ if __name__ == '__main__':
                     data, target = data.to(device), target.to(device)
                     output, _, _ = model(data)
                     target_indices = target.argmax(dim=-1).long()
-                    log_output = torch.log(output.clamp_min(1e-8))
-                    loss = loss_criterion(log_output.transpose(1, 2), target_indices)
+                    loss = loss_criterion(output.transpose(1, 2), target_indices)
                     val_loss += loss.item()
                     prediction = output.argmax(dim=-1)
                     valid = target_indices != dataset.symb2int['<pad>']
@@ -178,7 +187,7 @@ if __name__ == '__main__':
         accuracy = 0
         total_characters = 0
         edit_distances = []
-        loss_criterion = nn.NLLLoss(
+        loss_criterion = nn.CrossEntropyLoss(
             ignore_index=dataset.symb2int['<pad>']
         )
         example_position = int(np.random.default_rng().integers(len(dataset_test)))
@@ -216,9 +225,8 @@ if __name__ == '__main__':
 
                 target_indices = target.argmax(dim=-1).long()
                 prediction = output.argmax(dim=-1)
-                log_output = torch.log(output.clamp_min(1e-8))
                 test_loss += loss_criterion(
-                    log_output.transpose(1, 2), target_indices
+                    output.transpose(1, 2), target_indices
                 ).item()
                 valid = target_indices != dataset.symb2int['<pad>']
 
