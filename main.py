@@ -27,11 +27,11 @@ if __name__ == '__main__':
     n_workers = 0           # Nombre de threads pour chargement des données (mettre à 0 sur Windows)
 
     # À compléter
-    n_epochs = 100
-    batch_size = 32 #64
-    hidden_dim = 15
+    n_epochs = 200
+    batch_size = 128 #128 
+    hidden_dim = 11
     n_layers = 3
-    lr =0.004
+    lr = 0.01  #0.005
 
     best_val = np.inf
 
@@ -86,6 +86,20 @@ if __name__ == '__main__':
     epochs_train_losses = []
     epochs_val_losses = []
 
+    distance_train = []
+    distance_val = []
+
+    def indices_to_word(indices):
+        """Convertit une séquence d'indices en chaîne sans les tokens spéciaux."""
+        word = []
+        for index in indices:
+            symbol = dataset.int2symb[int(index)]
+            if symbol in ('<eos>', '<pad>'):
+                break
+            if symbol != '<sos>':
+                word.append(symbol)
+        return ''.join(word)
+
     if trainning:
 
         # Fonction de coût et optimizateur
@@ -96,13 +110,15 @@ if __name__ == '__main__':
 
         if learning_curves:
             plt.ion()
-            plt.figure(figsize=(8, 5))
+            figure, axes = plt.subplots(1, 2, figsize=(12, 5))
+            loss_axis, distance_axis = axes
 
 
         for epoch in range(1, n_epochs + 1):
             # Entraînement
             model.train()
             running_loss = 0
+            train_edit_distances = []
 
             for batch_idx, (data, target) in enumerate(train_loader):
                 data, target = data.to(device), target.to(device)
@@ -116,12 +132,24 @@ if __name__ == '__main__':
                 optimizer.step()
                 running_loss += loss.item()
 
+                prediction = output.argmax(dim=-1)
+                for predicted_indices, expected_indices in zip(
+                    prediction.detach().cpu(), target_indices.detach().cpu()
+                ):
+                    train_edit_distances.append(
+                        edit_distance(
+                            indices_to_word(predicted_indices),
+                            indices_to_word(expected_indices),
+                        )
+                    )
+
             
             # Validation
             model.eval()
             val_loss = 0
             accuracy = 0
             val_total_characters = 0
+            val_edit_distances = []
             with torch.no_grad():
                 for data, target in val_loader:
                     data, target = data.to(device), target.to(device)
@@ -136,15 +164,29 @@ if __name__ == '__main__':
                     accuracy += ((prediction == target_indices) & valid).sum().item()
                     val_total_characters += valid.sum().item()
 
+                    for predicted_indices, expected_indices in zip(
+                        prediction.cpu(), target_indices.cpu()
+                    ):
+                        val_edit_distances.append(
+                            edit_distance(
+                                indices_to_word(predicted_indices),
+                                indices_to_word(expected_indices),
+                            )
+                        )
+
 
             # Ajouter les loss aux listes
             epochs_train_losses.append(running_loss / len(train_loader))
             epochs_val_losses.append(val_loss/ len(val_loader))
+            distance_train.append(np.mean(train_edit_distances))
+            distance_val.append(np.mean(val_edit_distances))
 
             print(
                 f"Époque {epoch}/{n_epochs} terminée - "
                 f"train loss: {epochs_train_losses[-1]:.6f} - "
-                f"validation loss: {epochs_val_losses[-1]:.6f}",
+                f"validation loss: {epochs_val_losses[-1]:.6f} - "
+                f"distance train: {distance_train[-1]:.4f} - "
+                f"distance validation: {distance_val[-1]:.4f}",
                 flush=True,
             )
 
@@ -163,15 +205,26 @@ if __name__ == '__main__':
                 # visualization
                 # Affichage des courbes d'apprentissages
                 ##lab app2
-                plt.clf()
-                plt.xlabel('Epochs')
-                plt.ylabel('Loss')
-                plt.plot(range(1, epoch + 1), epochs_train_losses, color='blue', label='Training loss', linestyle=':')
-                plt.plot(range(1, epoch + 1), epochs_val_losses, color='red', label='Validation loss', linestyle='-.')
-                plt.legend()
-                plt.draw()
+                epochs = range(1, epoch + 1)
+                loss_axis.clear()
+                loss_axis.set_xlabel('Epochs')
+                loss_axis.set_ylabel('Loss')
+                loss_axis.plot(epochs, epochs_train_losses, color='blue', label='Training loss', linestyle=':')
+                loss_axis.plot(epochs, epochs_val_losses, color='red', label='Validation loss', linestyle='-.')
+                loss_axis.legend()
+
+                distance_axis.clear()
+                distance_axis.set_xlabel('Epochs')
+                distance_axis.set_ylabel("Distance d'édition moyenne")
+                distance_axis.plot(epochs, distance_train, color='blue', label='Training distance', linestyle=':')
+                distance_axis.plot(epochs, distance_val, color='red', label='Validation distance', linestyle='-.')
+                distance_axis.legend()
+
+                figure.tight_layout()
+                figure.canvas.draw()
+                figure.canvas.flush_events()
                 plt.pause(0.001)
-                plt.savefig('courbe.png')
+                figure.savefig('courbe.png')
 
         if learning_curves:
             plt.ioff()
@@ -197,17 +250,6 @@ if __name__ == '__main__':
 
         true_labels = []
         predicted_labels = []
-
-        def indices_to_word(indices):
-            """Convertit une séquence d'indices en chaîne sans les tokens spéciaux."""
-            word = []
-            for index in indices:
-                symbol = dataset.int2symb[int(index)]
-                if symbol in ('<eos>', '<pad>'):
-                    break
-                if symbol != '<sos>':
-                    word.append(symbol)
-            return ''.join(word)
 
         def indices_to_display(indices):
             """Convertit une séquence en texte visible, tokens spéciaux compris."""
