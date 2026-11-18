@@ -124,28 +124,15 @@ class trajectory2seq(nn.Module):
         return torch.cat(outputs, dim=1), hidden, None
 
     def attentionModule(self, query, values, mask):
-        # Module d'attention
-
-        # Projection de la requête du décodeur.
-        query = self.hidden2query(query)
-
-        # query : (batch, hidden)
-        # values : (batch, temps, hidden)
-        scores = torch.bmm(values, query.unsqueeze(2)).squeeze(2)
-        scores = scores.masked_fill(~mask, float('-inf'))
-
-        attention_weights = torch.softmax(scores, dim=1)
-        context = torch.bmm(
-            attention_weights.unsqueeze(1), values
-        ).squeeze(1)
-
-        # Fusion de la requête et du contexte avec la deuxième couche
-        # linéaire, comme dans l'architecture Seq2seq_attn de référence.
-        attention_output = torch.tanh(
-            self.att_combine(torch.cat((query, context), dim=1))
+        q = self.hidden2query(query)
+        scores = torch.bmm(q, values.transpose(1, 2))
+        scores = scores.masked_fill(~mask[:, None, :], float('-inf'))
+        weights = torch.softmax(scores, dim=2)
+        context = torch.bmm(weights, values)
+        out = torch.tanh(
+            self.att_combine(torch.cat((query, context), dim=2))
         )
-
-        return attention_output, attention_weights
+        return out, weights
 
     def decode_sequence_Attn(self, encoder_outs, hidden, encoder_mask, target=None):
         # Décodeur caractère par caractère, comme decode_sequence, avec
@@ -165,18 +152,17 @@ class trajectory2seq(nn.Module):
         for i in range(self.maxlen):
             embedding = self.en_embedding(vec_in)
             decoder_out, hidden = self.decoder_rnn(embedding, hidden)
-            query = decoder_out.squeeze(1)
 
             attention_output, weights = self.attentionModule(
-                query,
+                decoder_out,
                 encoder_outs,
                 encoder_mask,
             )
 
-            logits = self.fc(attention_output).unsqueeze(1)
+            logits = self.fc(attention_output)
 
             outputs.append(logits)
-            attentions.append(weights.unsqueeze(1))
+            attentions.append(weights)
 
             if target is not None and i < self.maxlen - 1:
                 vec_in = target[:, i:i + 1]
