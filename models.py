@@ -4,7 +4,6 @@
 
 import torch
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -21,23 +20,21 @@ class trajectory2seq(nn.Module):
         self.maxlen = maxlen
         self.rnn_type = rnn_type.upper()
         self.bidirectional = bidirectional
-        if self.rnn_type not in {'GRU', 'LSTM'}:
-            raise ValueError("rnn_type doit être 'GRU' ou 'LSTM'.")
 
-        # Definition des couches
-        # Couches pour rnn
-        # comme traductrion ENcodeur décodeur
-        # Les entrées sont des coordonnées réelles (x, y), pas des indices.
-        self.input_projection = nn.Linear(2, self.hidden_dim)
+
         self.en_embedding = nn.Embedding(self.dict_size, self.hidden_dim)
 
-        rnn_class = nn.GRU if self.rnn_type == 'GRU' else nn.LSTM
+        rnn_class = {
+            'ELMAN': nn.RNN,
+            'GRU': nn.GRU,
+            'LSTM': nn.LSTM,
+        }[self.rnn_type]
         self.encode = rnn_class(
-            self.hidden_dim, self.hidden_dim, self.n_layers,
+            2, self.hidden_dim, self.n_layers,
             batch_first=True, bidirectional=self.bidirectional,
         )
+        
         # Le décodeur reste unidirectionnel pour générer les lettres dans
-        # l'ordre temporel.
         self.decoder_rnn = rnn_class(
             self.hidden_dim, self.hidden_dim, self.n_layers,
             batch_first=True,
@@ -54,24 +51,9 @@ class trajectory2seq(nn.Module):
 
 
     def encoder(self, x):
-        # Les coordonnées ajoutées pour le padding sont nulles. Sans
-        # masquage, le GRU traite ces zéros et son état final devient
-        # presque identique pour toutes les trajectoires.
-        lengths = (x.abs().sum(dim=2) > 0).sum(dim=1).clamp_min(1)
-        x = self.input_projection(x)
-        packed_x = pack_padded_sequence(
-            x,
-            lengths.cpu(),
-            batch_first=True,
-            enforce_sorted=False,
-        )
-        packed_out, hidden = self.encode(packed_x)
 
-        encoder_outs, _ = pad_packed_sequence(
-            packed_out,
-            batch_first=True,
-            total_length=x.size(1),
-        )
+        lengths = (x.abs().sum(dim=2) > 0).sum(dim=1).clamp_min(1)
+        encoder_outs, hidden = self.encode(x)
 
         if self.bidirectional:
             encoder_outs = encoder_outs.view(
@@ -100,7 +82,7 @@ class trajectory2seq(nn.Module):
         return encoder_outs, hidden, encoder_mask
 
     def decode_sequence(self, encoder_outs, hidden, target=None):
-        # Un LSTM renvoie (h_n, c_n), un GRU renvoie directement h_n.
+
         batch_size = hidden[0].shape[1] if self.rnn_type == 'LSTM' else hidden.shape[1]
         sos_index = self.symb2int['<sos>']
         vec_in = torch.full(
@@ -113,13 +95,6 @@ class trajectory2seq(nn.Module):
             decoder_out, hidden = self.decoder_rnn(embedding, hidden)
             logits = self.fc(decoder_out)
             outputs.append(logits)
-
-            # Pendant l'entraînement, utiliser le caractère attendu pour
-            # éviter qu'une mauvaise prédiction ne se propage à toute la suite.
-            if target is not None and i < self.maxlen - 1:
-                vec_in = target[:, i:i + 1]
-            else:
-                vec_in = logits.argmax(dim=-1)
 
         return torch.cat(outputs, dim=1), hidden, None
 
@@ -164,11 +139,6 @@ class trajectory2seq(nn.Module):
             outputs.append(logits)
             attentions.append(weights)
 
-            if target is not None and i < self.maxlen - 1:
-                vec_in = target[:, i:i + 1]
-            else:
-                vec_in = logits.argmax(dim=-1)
-
         return (
             torch.cat(outputs, dim=1),
             hidden,
@@ -177,7 +147,7 @@ class trajectory2seq(nn.Module):
         
 
     def forward(self, x, target=None):
-        # À compléter
+
         out, h, encoder_mask = self.encoder(x)
         #out, hidden, attn = self.decode_sequence(out, h, target)
         out, hidden, attn = self.decode_sequence_Attn(

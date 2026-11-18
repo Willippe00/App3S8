@@ -27,11 +27,13 @@ if __name__ == '__main__':
     n_workers = 0           # Nombre de threads pour chargement des données (mettre à 0 sur Windows)
 
     # À compléter
-    n_epochs = 200
+    typeRNN = "GRU" #"ELMAN", "GRU", "LSTM"
+    bidirectionnel = True 
+    n_epochs = 30
     batch_size = 128 #128 
     hidden_dim = 11
     n_layers = 3
-    lr = 0.01  #0.005
+    lr = 0.03  #0.005
 
     best_val = np.inf
 
@@ -76,8 +78,8 @@ if __name__ == '__main__':
         dict_size=dataset.dict_size,
         device=device,
         maxlen=dataset.maxTexte,
-        rnn_type='GRU',
-        bidirectional=True,
+        rnn_type=typeRNN,
+        bidirectional=bidirectionnel,
     ).to(device)
 
     nb_params = sum(p.numel() for p in model.parameters())
@@ -123,8 +125,7 @@ if __name__ == '__main__':
             for batch_idx, (data, target) in enumerate(train_loader):
                 data, target = data.to(device), target.to(device)
                 optimizer.zero_grad()
-                # CrossEntropyLoss utilise les indices de classes, donc on
-                # reconvertit la cible one-hot en indices avant le calcul.
+
                 target_indices = target.argmax(dim=-1).long()
                 output, _, _ = model(data, target_indices)
                 loss = loss_criterion(output.transpose(1, 2), target_indices)
