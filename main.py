@@ -19,7 +19,7 @@ if __name__ == '__main__':
 
     # ---------------- Paramètres et hyperparamètres ----------------#
     force_cpu = False            # Le backend Triton/CUDA local n'a pas de compilateur C.
-    trainning = False            # Entrainement? Requis après une modification du modèle.
+    trainning = True            # Entrainement? Requis après une modification du modèle.
     test = True                # Test?
     learning_curves = True     # Affichage des courbes d'entrainement?
     gen_test_images = True     # Génération images test?
@@ -50,17 +50,21 @@ if __name__ == '__main__':
     # Instanciation de l'ensemble de données
     # À compléter
     dataset = HandwrittenWords(filename="./data_trainval.p")
+    dataset_test =  HandwrittenWords(filename="./data_test.p")
 
     
-    # Séparation de l'ensemble de données (entraînement et validation)
-    # modifier depuis code app2
-    train_split = 0.70
-    val_split = 0.15
+    # Séparation de l'ensemble train/validation.
+    # Le jeu de test provient séparément de data_test.p et ne doit pas
+    # être remplacé par une troisième portion de data_trainval.p.
+    train_split = 0.85
     n_train_samples = int(len(dataset) * train_split)
-    n_val_samples = int(len(dataset) * val_split)
-    n_test_samples = len(dataset) - n_train_samples - n_val_samples
+    n_val_samples = len(dataset) - n_train_samples
     generator1 = torch.Generator().manual_seed(42)
-    dataset_train, dataset_val, dataset_test = torch.utils.data.random_split(dataset,[n_train_samples, n_val_samples, n_test_samples],generator=generator1)
+    dataset_train, dataset_val = torch.utils.data.random_split(
+        dataset,
+        [n_train_samples, n_val_samples],
+        generator=generator1,
+    )
    
 
     # Instanciation des dataloaders
@@ -311,8 +315,8 @@ if __name__ == '__main__':
 
         # Affichage d'un exemple choisi au hasard dans le dataset de test.
         if example_prediction is not None:
-            fig = dataset.visualisation(
-                dataset_test.indices[example_position],
+            fig = dataset_test.visualisation(
+                example_position,
                 predicted_word=example_prediction,
                 expected_word=example_expected,
             )
