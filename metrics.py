@@ -9,7 +9,7 @@ from sklearn.metrics import ConfusionMatrixDisplay
 
 def edit_distance(a,b):
     
-    print(a, b)
+    #print(a, b)
 
     # création de la matrice
     mat = np.zeros((len(a) + 1, len(b) + 1), dtype=int)
@@ -26,7 +26,7 @@ def edit_distance(a,b):
             cout_substitution = 0 if a[i - 1] == b[j - 1] else 1
             mat[i, j] = min(mat[i - 1, j] + 1, mat[i, j - 1] + 1, mat[i - 1, j - 1] + cout_substitution)
 
-    print(mat)
+    #print(mat)
     return mat[len(a), len(b)] #retourne l'élément en bas a droit
 
 def confusion_matrix(true, pred, ignore=None):
