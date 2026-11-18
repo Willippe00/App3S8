@@ -110,9 +110,7 @@ class trajectory2seq(nn.Module):
         return out, weights
 
     def decode_sequence_Attn(self, encoder_outs, hidden, encoder_mask, target=None):
-        # Décodeur caractère par caractère, comme decode_sequence, avec
-        # une attention recalculée à chaque étape.
-        # Un GRU renvoie directement h_n : (n_layers, batch, hidden_dim).
+        
         batch_size = hidden[0].shape[1] if self.rnn_type == 'LSTM' else hidden.shape[1]
         sos_index = self.symb2int['<sos>']
         vec_in = torch.full(

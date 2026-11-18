@@ -19,7 +19,7 @@ if __name__ == '__main__':
 
     # ---------------- Paramètres et hyperparamètres ----------------#
     force_cpu = False            # Le backend Triton/CUDA local n'a pas de compilateur C.
-    trainning = True            # Entrainement? Requis après une modification du modèle.
+    trainning = False            # Entrainement? Requis après une modification du modèle.
     test = True                # Test?
     learning_curves = True     # Affichage des courbes d'entrainement?
     gen_test_images = True     # Génération images test?
@@ -247,6 +247,9 @@ if __name__ == '__main__':
         example_position = int(np.random.default_rng().integers(len(dataset_test)))
         example_prediction = None
         example_expected = None
+        example_attention = None
+        example_data = None
+        example_predicted_indices = None
         sample_offset = 0
 
         true_labels = []
@@ -261,10 +264,12 @@ if __name__ == '__main__':
             first_symbol = dataset.int2symb[int(indices[0])]
             return first_symbol if first_symbol in ('<eos>', '<pad>') else '<vide>'
 
+        
+
         with torch.no_grad():
             for data, target in test_loader:
                 data, target = data.to(device), target.to(device)
-                output, _, _ = model(data)
+                output, _, attention = model(data)
 
                 target_indices = target.argmax(dim=-1).long()
                 prediction = output.argmax(dim=-1)
@@ -287,6 +292,9 @@ if __name__ == '__main__':
                     if sample_offset + batch_position == example_position:
                         example_prediction = indices_to_display(predicted_indices)
                         example_expected = indices_to_display(expected_indices)
+                        example_attention = attention[batch_position].cpu()
+                        example_data = data[batch_position].cpu()
+                        example_predicted_indices = predicted_indices.cpu()
                     edit_distances.append(
                         edit_distance(predicted_word, expected_word)
                     )
@@ -309,9 +317,16 @@ if __name__ == '__main__':
                 expected_word=example_expected,
             )
             fig.savefig('resultat_test.png', dpi=150, bbox_inches='tight')
+            plt.close(fig)
 
         # Affichage de l'attention
-        # À compléter (si nécessaire)
+        if example_attention is not None:
+            plot_attention_trajectory(
+                example_data,
+                example_attention,
+                example_predicted_indices,
+                'example_test_avec_attention.png',
+            )
 
         # Affichage de la matrice de confusion
         true_labels = [dataset.int2symb[int(label)] for label in true_labels]
